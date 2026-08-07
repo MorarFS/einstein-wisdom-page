@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Einstein's Expert Analysis — GraphRAG AI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+    <style>
+        body { font-family: 'Inter', Georgia, serif; }
+        #answerDisplay { white-space: pre-wrap; }
+    </style>
+</head>
+<body class="bg-slate-100 flex items-center justify-center min-h-screen p-4">
+    <div class="bg-white p-8 rounded-lg shadow-xl w-full max-w-4xl border border-slate-200">
+        <h1 class="text-3xl font-bold mb-2 text-center text-blue-900">Ask Einstein AI</h1>
+        <p class="text-center text-slate-600 text-sm mb-6">Explore Albert Einstein's Collected Papers, General & Special Relativity, and Science</p>
+        
+        <div class="mb-4">
+            <label for="questionInput" class="block text-slate-700 text-sm font-bold mb-2">Your Question:</label>
+            <input type="text" id="questionInput" class="shadow-sm appearance-none border border-slate-300 rounded-lg w-full py-3 px-4 text-slate-800 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-600" placeholder="e.g., What is special relativity?">
+        </div>
+        
+        <button id="askButton" class="bg-blue-800 hover:bg-blue-900 text-white font-bold py-3 px-6 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 w-full transition duration-200 ease-in-out shadow">
+            Ask Einstein
+        </button>
+        
+        <div id="loadingIndicator" class="mt-4 text-center text-blue-800 font-medium hidden">
+            <div class="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-blue-800 mr-2"></div>
+            Analyzing the Einstein corpus & knowledge graph...
+        </div>
+        
+        <div id="answerDisplay" class="mt-6 p-6 bg-slate-50 rounded-lg border border-slate-200 text-slate-800 break-words hidden">
+        </div>
+        
+        <div id="exportSection" class="mt-4 flex justify-end">
+            <button id="exportLatexBtn" class="bg-emerald-700 hover:bg-emerald-800 text-white font-bold py-2 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-600 transition duration-200 ease-in-out hidden shadow-sm">
+                📄 Export to LaTeX
+            </button>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const questionInput = document.getElementById('questionInput');
+            const askButton = document.getElementById('askButton');
+            const answerDisplay = document.getElementById('answerDisplay');
+            const loadingIndicator = document.getElementById('loadingIndicator');
+            const exportLatexBtn = document.getElementById('exportLatexBtn');
+
+            // Backend API URL on Google Cloud Run
+            const backendUrl = "https://einstein-service-465121314425.us-central1.run.app/ask_einstein";
+
+            let userCountry = "Unknown";
+            fetch("https://ipapi.co/json/")
+                .then(res => res.json())
+                .then(data => { if (data && data.country_name) userCountry = data.country_name; })
+                .catch(err => console.warn("Could not determine user location:", err));
+
+            async function sendMessage() {
+                const question = questionInput.value.trim();
+                if (!question) return;
+
+                loadingIndicator.classList.remove('hidden');
+                answerDisplay.innerHTML = '';
+                answerDisplay.classList.add('hidden');
+                exportLatexBtn.classList.add('hidden');
+
+                try {
+                    const response = await fetch(backendUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ question: question, country: userCountry })
+                    });
+
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.error || `HTTP error! Status: ${response.status}`);
+                    }
+
+                    const data = await response.json();
+                    answerDisplay.innerHTML = data.answer || data.response;
+                    answerDisplay.classList.remove('hidden');
+                    exportLatexBtn.classList.remove('hidden');
+                } catch (error) {
+                    console.error('Error:', error);
+                    answerDisplay.innerHTML = `<p class="text-red-600 font-semibold">Error: ${error.message}. Please try again.</p>`;
+                    answerDisplay.classList.remove('hidden');
+                } finally {
+                    loadingIndicator.classList.add('hidden');
+                }
+            }
+
+            askButton.addEventListener('click', sendMessage);
+            questionInput.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    sendMessage();
+                }
+            });
+        });
+    </script>
+</body>
+</html>
