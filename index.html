@@ -3,9 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Einstein's Expert Analysis — GraphRAG AI</title>
+    <title>Ask Einstein AI | Collected Papers</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
     <style>
         body { font-family: 'Inter', Georgia, serif; }
         #answerDisplay { white-space: pre-wrap; }
@@ -25,12 +24,12 @@
             Ask Einstein
         </button>
         
-        <div id="loadingIndicator" class="mt-4 text-center text-blue-800 font-medium hidden">
+        <div id="loadingIndicator" role="status" aria-live="polite" class="mt-4 text-center text-blue-800 font-medium hidden">
             <div class="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-blue-800 mr-2"></div>
-            Analyzing the Einstein corpus & knowledge graph...
+            <span id="loadingMessage">Finding passages in Einstein's Collected Papers...</span>
         </div>
         
-        <div id="answerDisplay" class="mt-6 p-6 bg-slate-50 rounded-lg border border-slate-200 text-slate-800 break-words hidden">
+        <div id="answerDisplay" aria-live="polite" class="mt-6 p-6 bg-slate-50 rounded-lg border border-slate-200 text-slate-800 break-words hidden">
         </div>
         
         <div id="exportSection" class="mt-4 flex justify-end">
@@ -47,6 +46,8 @@
             const answerDisplay = document.getElementById('answerDisplay');
             const loadingIndicator = document.getElementById('loadingIndicator');
             const exportLatexBtn = document.getElementById('exportLatexBtn');
+            const loadingMessage = document.getElementById('loadingMessage');
+            let requestInFlight = false;
 
             // Backend API URL on Google Cloud Run
             const backendUrl = "https://einstein-service-465121314425.us-central1.run.app/ask_einstein";
@@ -59,7 +60,17 @@
 
             async function sendMessage() {
                 const question = questionInput.value.trim();
-                if (!question) return;
+                if (!question || requestInFlight) return;
+                requestInFlight = true;
+                askButton.disabled = true;
+                askButton.textContent = 'Preparing your answer...';
+                answerDisplay.setAttribute('aria-busy', 'true');
+                loadingMessage.textContent = "Finding passages in Einstein's Collected Papers...";
+                const controller = new AbortController();
+                const timeout = setTimeout(() => controller.abort(), 90000);
+                const progress = setTimeout(() => {
+                    loadingMessage.textContent = 'Your answer is still being prepared. The first question after a quiet period can take longer.';
+                }, 12000);
 
                 loadingIndicator.classList.remove('hidden');
                 answerDisplay.innerHTML = '';
@@ -70,24 +81,35 @@
                     const response = await fetch(backendUrl, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
+                        signal: controller.signal,
                         body: JSON.stringify({ question: question, country: userCountry })
                     });
 
                     if (!response.ok) {
-                        const errorData = await response.json();
-                        throw new Error(errorData.error || `HTTP error! Status: ${response.status}`);
+                        const errorData = await response.json().catch(() => ({}));
+                        throw new Error(errorData.error || 'The service is temporarily unavailable. Please try again shortly.');
                     }
 
                     const data = await response.json();
-                    answerDisplay.innerHTML = data.answer || data.response;
+                    const answer = data.answer || data.response;
+                    if (typeof answer !== 'string' || !answer.trim()) {
+                        throw new Error('The service returned an empty answer. Please try again.');
+                    }
+                    answerDisplay.innerHTML = answer;
                     answerDisplay.classList.remove('hidden');
-                    exportLatexBtn.classList.remove('hidden');
                 } catch (error) {
-                    console.error('Error:', error);
-                    answerDisplay.innerHTML = `<p class="text-red-600 font-semibold">Error: ${error.message}. Please try again.</p>`;
+                    answerDisplay.textContent = error.name === 'AbortError'
+                        ? 'This request took too long. Please try your question again in a moment.'
+                        : error.message;
                     answerDisplay.classList.remove('hidden');
                 } finally {
                     loadingIndicator.classList.add('hidden');
+                    clearTimeout(timeout);
+                    clearTimeout(progress);
+                    requestInFlight = false;
+                    askButton.disabled = false;
+                    askButton.textContent = 'Ask Einstein';
+                    answerDisplay.removeAttribute('aria-busy');
                 }
             }
 
